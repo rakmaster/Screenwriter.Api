@@ -13,10 +13,9 @@ package main
 import (
 	"log"
 	"net/http"
-	"fmt"
-	"log"
-	"gopkg.in/mgo.v2"
-	"gopkg.in/mgo.v2/bson"
+
+	"github.com/gorilla/context"
+
 	// WARNING!
 	// Change this to a fully-qualified import path
 	// once you place this file into your project.
@@ -24,13 +23,72 @@ import (
 	//
 	//    sw "github.com/myname/myrepo/go"
 	//
-	sw "github.com/rakmaster/shootsite-api/go"
+	sw "./go"
+	mgo "gopkg.in/mgo.v2"
 )
+
+const m = ScreenwriterDAO{"192.168.1.175", "screenwriter"}
+
+type Adapter func(http.Handler) http.Handler
+
+func Adapt(h http.Handler, adapters ...Adapter) http.Handler {
+	for _, adapter := range adapters {
+		h = adapter(h)
+	}
+	return h
+}
+
+func withDB(db *mgo.Session) Adapter {
+	// return the Adapter
+	return func(h http.Handler) http.Handler {
+		// the adapter (when called) should return a new handler
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// copy the database session
+			dbsession := db.Copy()
+			defer dbsession.Close() // clean up
+			// save it in the mux context
+			context.Set(r, "screenwriter", dbsession)
+			// pass execution to the original handler
+			h.ServeHTTP(w, r)
+		})
+	}
+}
+
+func ensureIndex(s *mgo.Session) {
+	session := s.Copy()
+	defer session.Close()
+
+	c := session.DB("screenwriter").C("projects")
+
+	index := mgo.Index{
+		Key:        []string{"id"},
+		Unique:     true,
+		DropDups:   true,
+		Background: true,
+		Sparse:     true,
+	}
+	err := c.EnsureIndex(index)
+	if err != nil {
+		panic(err)
+	}
+}
 
 func main() {
 	log.Printf("Server started")
 
+	db, err := mgo.Dial(m.Server)
+	if err != nil {
+		log.Fatal("cannot dial mongo", err)
+	}
+	defer db.Close() // clean up when we’re done
+
 	router := sw.NewRouter()
+
+	// Adapt our handle function using withDB
+	h := Adapt(router, withDB(db))
+
+	// add the handler
+	http.Handle("/projects", context.ClearHandler(h))
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
