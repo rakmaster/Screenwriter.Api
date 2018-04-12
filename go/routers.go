@@ -18,6 +18,8 @@ import (
 	"github.com/gorilla/mux"
 )
 
+var Collection string
+
 type Route struct {
 	Name        string
 	Method      string
@@ -45,7 +47,7 @@ func NewRouter() *mux.Router {
 }
 
 func Index(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Hello Home!")
+	fmt.Fprintf(w, "Hello World!")
 }
 
 var routes = Routes{

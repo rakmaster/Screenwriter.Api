@@ -14,67 +14,25 @@ import (
 	"encoding/json"
 	"net/http"
 
-	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
+
+	dbo "../dbo"
+	. "../models"
 )
-
-type ProjectsDAO struct {
-	Server   string
-	Database string
-}
-
-var db *mgo.Database
-
-const (
-	COLLECTION = "projects"
-)
-
-// Find list of projects
-func (p *ProjectsDAO) FindAll() ([]Project, error) {
-	var projects []Project
-	err := db.C(COLLECTION).Find(bson.M{}).All(&projects)
-	return projects, err
-}
-
-// Find a project by its id
-func (p *ProjectsDAO) FindById(id string) (Project, error) {
-	var project Project
-	err := db.C(COLLECTION).FindId(bson.ObjectIdHex(id)).One(&project)
-	return project, err
-}
-
-// Insert a project into database
-func (p *ProjectsDAO) Insert(project Project) error {
-	err := db.C(COLLECTION).Insert(&project)
-	return err
-}
-
-// Delete an existing project
-func (p *ProjectsDAO) Delete(project Project) error {
-	err := db.C(COLLECTION).Remove(&project)
-	return err
-}
-
-// Update an existing project
-func (p *ProjectsDAO) Update(project Project) error {
-	err := db.C(COLLECTION).UpdateId(project.ID, &project)
-	return err
-}
-
-func respondWithError(w http.ResponseWriter, code int, msg string) {
-	respondWithJson(w, code, map[string]string{"error": msg})
-}
-
-func respondWithJson(w http.ResponseWriter, code int, payload interface{}) {
-	response, _ := json.Marshal(payload)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	w.Write(response)
-}
 
 func AddProject(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
+	defer r.Body.Close()
+	var project Project
+	if err := json.NewDecoder(r.Body).Decode(&project); err != nil {
+		dbo.RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	project.Id = bson.NewObjectId()
+	if err := dbo.InsertProject(project); err != nil {
+		dbo.RespondWithError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	dbo.RespondWithJson(w, http.StatusCreated, project)
 }
 
 func DeleteProject(w http.ResponseWriter, r *http.Request) {
@@ -98,15 +56,12 @@ func GetProjectDocuments(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetProjects(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	w.WriteHeader(http.StatusOK)
-	defer r.Body.Close()
-	projects, err := p.FindAll()
+	projects, err := dbo.FindAllProjects()
 	if err != nil {
-		respondWithError(w, http.StatusInternalServerError, err.Error())
+		dbo.RespondWithError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	respondWithJson(w, http.StatusOK, projects)
+	dbo.RespondWithJson(w, http.StatusOK, projects)
 }
 
 func UpdateProject(w http.ResponseWriter, r *http.Request) {
